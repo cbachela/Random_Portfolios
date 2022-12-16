@@ -1,4 +1,4 @@
-
+  
   
   ############################################################################
   ### RANDOM PORTFOLIOS - ALPHABET STRATEGIES - USA
@@ -19,7 +19,7 @@
   # --------------------------------------------------------------------------
   # REQUIRE
   # --------------------------------------------------------------------------
-
+  
   require(stringr)
   require(garcholz)
   require(slolz)
@@ -102,6 +102,29 @@
   
   
   # --------------------------------------------------------------------------
+  # RANDOM PORTFOLIOS - UNIFORM OVER ALL ASSETS
+  # --------------------------------------------------------------------------
+  
+  BT1 <- BacktestCustom$new()
+  BT1$data <- BT0$data
+  BT1$spec <- BT0$spec
+  BT1$spec$portfolio <- "momentum_rp"
+  BT1$spec$n_sim <- 10^2 * 5
+  BT1$spec$sampling_dist = "uniform"
+  BT1$spec$m <- NULL
+  BT1$spec$shadow_dirichlet_transform <- FALSE
+  BT1$spec$scl_by_capw <- FALSE
+  BT1$runLoop()  
+  
+  # Simulate
+  tmp <- lapply( BT1$output, FUN = simFUN )
+  sim_1 <- do.call( cbind, tmp )
+  sim_1 <- sim_1[isWeekday(time(sim_1)), ]
+  colnames(sim_1) <- paste0("rp_uniform_all_", 1:ncol(sim_1))
+  
+  
+  
+  # --------------------------------------------------------------------------
   # RANDOM PORTFOLIOS - UNIFORM
   # --------------------------------------------------------------------------
   
@@ -112,7 +135,7 @@
   BT2$spec$n_sim <- 10^2 * 5
   BT2$spec$sampling_dist = "uniform"
   # BT2$spec$m <- NULL # means m = length(selection)
-  BT2$spec$m <- 30
+  BT2$spec$m <- 20
   BT2$spec$shadow_dirichlet_transform <- FALSE
   BT2$spec$scl_by_capw <- FALSE
   BT2$runLoop()  
@@ -120,10 +143,11 @@
   # Simulate
   tmp <- lapply( BT2$output, FUN = simFUN )
   sim_2 <- do.call( cbind, tmp )
+  sim_2 <- sim_2[isWeekday(time(sim_2)), ]
   colnames(sim_2) <- paste0("rp_uniform_", 1:ncol(sim_2))
   
   
- 
+  
   # --------------------------------------------------------------------------
   # RANDOM PORTFOLIOS - CAPW
   # --------------------------------------------------------------------------
@@ -136,7 +160,7 @@
   # BT3$spec$sampling_dist = "uniform"
   BT3$spec$sampling_dist = "capw"
   # BT3$spec$m <- NULL # means m = length(selection)
-  BT3$spec$m <- 30
+  BT3$spec$m <- 20
   # BT3$spec$th <- 0.1
   BT3$spec$shadow_dirichlet_transform <- FALSE
   BT3$spec$scl_by_capw <- TRUE # ~~~~~~~~~~~~~~~ 
@@ -149,10 +173,11 @@
   # Simulate
   tmp <- lapply( BT3$output, FUN = simFUN )
   sim_3 <- do.call( cbind, tmp )
+  sim_3 <- sim_3[isWeekday(time(sim_3)), ]
   colnames(sim_3) <- paste0("rp_capw", 1:ncol(sim_3))
   
   
- 
+  
   
   
   
@@ -162,12 +187,18 @@
   # Combine
   end_date <- "2022-03-06"
   strategy_names <- c("Capw", "EQW", colnames(X_alphabet))
-  # sim_all <- na.omit( cbind( X_bm[ ,strategy_names], sim_2) )
-  sim_all <- na.omit( cbind( X_bm[ ,strategy_names], sim_3) )
+  # sim_all <- na.omit( cbind( X_bm[ ,strategy_names], sim_1) )
+  sim_all <- na.omit( cbind( X_bm[ ,strategy_names], sim_2) )
+  # sim_all <- na.omit( cbind( X_bm[ ,strategy_names], sim_3) )
   # sim_all <- na.omit( cbind( X_bm[ ,strategy_names], sim_2, sim_3) )
   sim_all <- window( sim_all, start(sim_all), end_date )
-  lStats <-  descStats( sim_all, descStatsSpec(annualize = TRUE) )
+  lStats <- descStats( sim_all, descStatsSpec(annualize = TRUE) )
   # statsolz:::plot.stats( descStats( na.omit( cbind( X_bm[ ,strategy_names], X_alphabet) ) ), sortby = NULL )
+  
+  
+  lStats_sim1 <- descStats( window( sim_1, start(sim_1), end_date), descStatsSpec(annualize = TRUE) )
+  lStats_sim2 <- descStats( window( sim_2, start(sim_2), end_date), descStatsSpec(annualize = TRUE) )
+  lStats_sim3 <- descStats( window( sim_3, start(sim_3), end_date), descStatsSpec(annualize = TRUE) )
   
   
   # First decade
@@ -195,30 +226,40 @@
   
   df <- data.frame( x = lStats$stats["sds", ],
                     y = lStats$stats["means", ] )
-  df <- data.frame( x = lStats_decade1$stats["sds", ],
-                    y = lStats_decade1$stats["means", ] )
-  df <- data.frame( x = lStats_decade2$stats["sds", ],
-                    y = lStats_decade2$stats["means", ] )
-  df <- data.frame( x = phase_stats$'states==1'["sds", ],
-                    y = phase_stats$'states==1'["means", ] )
-  df <- data.frame( x = phase_stats$'states==-1'["sds", ],
-                    y = phase_stats$'states==-1'["means", ] )
+  # df <- data.frame( x = lStats_decade1$stats["sds", ],
+  #                   y = lStats_decade1$stats["means", ] )
+  # df <- data.frame( x = lStats_decade2$stats["sds", ],
+  #                   y = lStats_decade2$stats["means", ] )
+  # df <- data.frame( x = phase_stats$'states==1'["sds", ],
+  #                   y = phase_stats$'states==1'["means", ] )
+  # df <- data.frame( x = phase_stats$'states==-1'["sds", ],
+  #                   y = phase_stats$'states==-1'["means", ] )
   rownames(df) <- colnames(sim_all)
   h1 <- hist(df$x, breaks=250, plot=F)
   h2 <- hist(df$y, breaks=250, plot=F)
   top <- max(h1$counts, h2$counts) * 2
   lims_x <- range(c(df$x * 0.995, df$x * 1.005))
+  # lims_x <- range(df$x)
   lims_y <- range(df$y)
   k <- kde2d( df$x, df$y, n = 250, lims = c(lims_x, lims_y) )
   # margins
   oldpar <- par()
   par(mar=c(3,3,1,1))
-  layout(matrix(c(2,0,1,3),2,2,byrow=TRUE),c(3,1), c(1,3))
+  layout(matrix(c(2,0,1,3), 2, 2, byrow = TRUE), c(3,1), c(1,3))
   image(k)
-  points( x = df$x, y = df$y, pch = 19, col = "orange", cex = 0.5 )
-  tmp <- MASS::kde2d( x = df$x, y = df$y, n = 25, h = c(0.005, 0.02), lims = c(range(df$x), range(df$y)) ) 
-  # contour( tmp, xlab = "Portfolio Standard Deviation", ylab = "Portfolio Return", 
+  idx_x <- c( which(df$x > quantile(df$x, 0.9)), which(df$x < quantile(df$x, 0.1)) )
+  idx_y <- c( which(df$y > quantile(df$y, 0.9)), which(df$y < quantile(df$y, 0.1)) )
+  idx <- c( idx_x, idx_y )
+  points( x = df$x[idx], y = df$y[idx], pch = 19, col = "orange", cex = 0.5 )
+  # tmp <- MASS::kde2d( x = df$x, y = df$y, n = 25, h = c(0.005, 0.02), lims = c(range(df$x), range(df$y)) ) 
+  # contour( tmp, xlab = "Portfolio Standard Deviation", ylab = "Portfolio Return",
   #          add = TRUE, drawlabels = FALSE, col = "red" )
+  df1 <- data.frame( x = lStats_sim1$stats["sds", ],
+                     y = lStats_sim1$stats["means", ] )
+  k1 <- kde2d( df1$x, df1$y, n = 250 )
+  tmp <- MASS::kde2d( x = df1$x+0.001, y = df1$y, n = 25, lims = c(range(df1$x+0.001), range(df1$y)) ) 
+  contour( tmp, xlab = "Portfolio Standard Deviation", ylab = "Portfolio Return",
+           add = TRUE, drawlabels = FALSE, col = "blue" )
   colors_bm <- c("black", "blue")
   colors <- c(colors_bm, rep("grey", ncol(X_alphabet)))
   for ( i in 1:length(colors) ) {
@@ -246,7 +287,7 @@
   env_ff <- readRDS( file = paste0(path_ff, "data.Rds") )
   FF3 <- env_ff$lFactor$`3F`$USA_daily
   FF5 <- env_ff$lFactor$`5F`$USA_daily
- 
+  
   # Alpha's of naive random portfolios
   dates <- intersect( rownames(X_bm), rownames(FF5) )
   # dates <- intersect( dates, rownames(BBSObj$output$states)[ BBSObj$output$states == -1 ] )
@@ -264,7 +305,7 @@
   t_score <- unlist( lapply( lReg, FUN = function(x) { x[1, 3] } ) )  
   p_score <- unlist( lapply( lReg, FUN = function(x) { x[1, 4] } ) )
   
-
+  
   
   # Alpha's of simple random portfolios
   dates <- intersect( rownames(X_bm), rownames(FF5) )
@@ -311,7 +352,7 @@
   
   
   
-
+  
   
   # Relative performance
   FUN <- function(i) { simOutperformance( x = sim_all[ ,strategy_name], 
@@ -326,7 +367,7 @@
   # plot( log(cumulated(sim_delta, "discrete")), plot.type = "single", col = "orange" )
   # abline( h = 0, col = "grey" )
   
- 
+  
   
   
   
@@ -348,7 +389,7 @@
   
   
   # Market regimes
-   
+  
   BBSObj <- BBSRC$new()
   BBSObj$setCtrl()
   BBSObj$setData()
@@ -377,8 +418,7 @@
   boxplot( as.data.frame( tmp ), beside = TRUE, col = c("green", "red") )
   abline( h = 0 )
   
- 
-
+  
   
   
   
