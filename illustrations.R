@@ -148,7 +148,8 @@
   # SIMPLE RP: ASYMMETRIC DIRICHLET (NON-UNIFORM SAMPLING OVER THE SIMPLEX)
   # --------------------------------------------------------------------------
   
-  alpha <- c(0.4, 0.35, 0.25) * n
+  # alpha <- c(0.4, 0.35, 0.25) * n
+  alpha <- c(0.5, 0.3, 0.2) * n * 2
   dens_asy <- apply( samples_flat, 1, function(x) { ddirichlet( x = x, alpha = alpha ) } )
   ordering <- order(dens_asy)
   colors <- colors_density
