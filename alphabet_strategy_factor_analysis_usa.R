@@ -54,6 +54,22 @@
   llStats <- env$llStats
   llStats_inv <- env$llStats_inv
   lPortf_scores <- env$lPortf_scores
+  lScore <- env$lScore
+  letter_vec <- names(lSim)
+  
+  BT0 <- loadBacktest( wd = paste0(wd, "Data/"),
+                       name = "usa_maxw5" )
+  
+  
+  tmp <- lapply( lScore, FUN = function(X) { apply( X, 1, function(x) { length(which(x > 0)) } ) } )
+  n_portfolio <- do.call( cbind, tmp ) 
+  rbind( apply( n_portfolio, 2, range ),
+         apply( n_portfolio, 2, mean ) )
+  range(n_portfolio)
+  
+  
+  n_assets_bm <- apply( BT0$data$wmat_bm, 1, function(x) { sum(!is.na(x)) } )
+  range(n_assets_bm)
   
   
   
@@ -73,6 +89,7 @@
   sim_sort_inv <- window( sim_sort_inv, start(sim_sort_inv), end_date )
   colnames(sim_sort_inv) <- paste0("|", letter_vec)
   sim_tmp_inv <- na.omit( cbind( sim_sort_inv, bm = BT0$data$X_bm, eqw = sim_eqw ) )
+  lStats_inv <- descStats( sim_tmp_inv )
   
   # First decade
   sim_tmp_decade1 <- window( sim_tmp, start(sim_sort), "2011-01-01" )
@@ -132,6 +149,9 @@
   
   plot( as.simTS(sim_outperf) )
   descStats( sim_outperf )
+  descStats( sim_outperf_decade1 )
+  descStats( sim_outperf_decade2 )
+  
   
   
   # Sector allocation
@@ -141,11 +161,13 @@
   
   
   # Sharpe test
-  X <- sim_tmp[ ,c("Z", "bm", "eqw")]
-  ST <- sharpeTest( X = X, method = "HAC_PW" )
-  ST
- 
+  ST <- sharpeTest( X = sim_tmp[ ,c("Z", "bm", "eqw")], method = "HAC_PW" )
+  ST_decade1 <- sharpeTest( X = sim_tmp_decade1[ ,c("Z", "bm", "eqw")], method = "HAC_PW" )
+  ST_decade2 <- sharpeTest( X = sim_tmp_decade2[ ,c("Z", "bm", "eqw")], method = "HAC_PW" )
   
+  ST
+  ST_decade1
+  ST_decade2
   
   
   
@@ -270,6 +292,11 @@
   abline( h = 0.05 )
   sum( p_values < 0.05 ) / length(p_values)
   sum( p_values < 0.1 ) / length(p_values)
+  
+  barplot( sort(p_values_inv) )
+  abline( h = 0.05 )
+  sum( p_values_inv < 0.05 ) / length(p_values_inv)
+  sum( p_values_inv < 0.1 ) / length(p_values_inv)
   
   
   barplot( beta_pval_mat, beside = TRUE, col = 1:nrow(beta_pval_mat) )

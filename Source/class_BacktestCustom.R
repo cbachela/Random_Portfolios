@@ -1,7 +1,7 @@
 
   
   ############################################################################
-  ### GEOMSCALE LOW VOLATILITY ANAOMALY - CUSTOM FUNCTIONS
+  ### RANDOM PORTFOLIOS - CUSTOM BACKTEST CLASS
   ############################################################################
   
   
@@ -13,6 +13,7 @@
   
   # BacktestCustom.setData
   # BacktestCustom.gpo
+  # BacktestCustom.constraints.vola
   # BacktestCustom.dirichletPortfolio
   # BacktestCustom.accrejPortfolio
   # BacktestCustom.decilePortfolio
@@ -21,7 +22,12 @@
   # BacktestCustom.scorePortfolio
   # BacktestCustom.score_rpPortfolio
   # BacktestCustom.momentum_rpPortfolio
-  
+  # BacktestCustom.maxMomPortfolio
+  # BacktestCustom.momScorePortfolio
+  # BacktestCustom.volScorePortfolio
+  # BacktestCustom.grwPortfolio
+  # BacktestCustom.maxRCPortfolio
+  # BacktestCustom.MSCIMultifactorConstraints
   
   
  
@@ -118,6 +124,31 @@
   }
   BacktestCustom$methods( gpo = BacktestCustom.gpo )
   
+  
+  
+  # --------------------------------------------------------------------------
+  BacktestCustom.constraints.vola <- function( rebdate = NULL )
+  {
+    vola_multiple <- ifelse( is.null(spec$vola_multiple), 1, spec$vola_multiple)
+    RBE <- rebalenv( rebdate = rebdate )
+    selection <- RBE$selection
+    X <- data$X_est_d[which(rownames(data$X_est_d) <= rebdate), selection]
+    X <- tail(X, 252)
+    X[is.na(X)] <- 0
+    sds <- apply( X, 2, sd )
+    .self$benchmarkWeights( rebdate = rebdate )
+    bm_weights <- getBenchmarkWeights( RBE$GPS )
+    bm_weights <- bm_weights[ selection ] / sum( bm_weights[ selection ] )
+    bm_score <- sum( bm_weights * sds ) * vola_multiple
+    ans <- linearConstraint( name = "vola",
+                             sense = "<=",
+                             rhs = bm_score,
+                             Amat = matrix( sds, nrow = 1, dimnames = list("vola", names(sds)) ) ) 
+    return( ans )
+  }
+  BacktestCustom$methods( constraints.vola = BacktestCustom.constraints.vola )
+  
+    
   
   
   # --------------------------------------------------------------------------
@@ -405,6 +436,7 @@
     Names <- paste0("dirichlet", 1:n_sim)
     shadow_dirichlet_transform <- spec$shadow_dirichlet_transform
     scl_by_capw <- spec$scl_by_capw
+    keep_all_rebdates <- spec$keep_all_rebdates
     # sampling_method <- ifelse( is.null(spec$sampling_method), "moon", spec$sampling_method )
     sampling_dist <- ifelse( is.null(spec$sampling_dist), "uniform", spec$sampling_dist )
 
@@ -450,24 +482,23 @@
       colnames(samples) <- selection
     }
   
-    
-    # Load initial weights and only append new random weights if there are is a change in the selection
-    # compared to the old allocation (otherwise buy and hold).
-    idx <- which(spec$rebdates == rebdate)
-    if (idx > 1) {
-      lw_init <- list()
-      for ( i in seq(along = Names) ) {
-        yesterday <- max( rownames( output[[Names[[i]]]] )[ rownames( output[[Names[[i]]]] ) < rebdate ] )
-        w_old <- output[[Names[i]]][yesterday, ]
-        w_old <- w_old[ ,which(w_old > 0)]
-        lw_init[[i]] <- na.omit( setNames( as.numeric(w_old), names(w_old)) )
-      }
-      tmp <- unlist( lapply( lw_init, FUN = function(w){ !all(names(w) %in% selection) } ) )
-      not_ok <- which(tmp)
-    } else {
-      not_ok <- 1:n_sim
+    # Load initial weights and only append new random weights if there are is a change 
+    # in the selection compared to the old allocation (otherwise buy and hold).
+    not_ok <- 1:n_sim
+    if ( !isTRUE(keep_all_rebdates) ) {
+      idx <- which(spec$rebdates == rebdate)
+      if (idx > 1) {
+        lw_init <- list()
+        for ( i in seq(along = Names) ) {
+          yesterday <- max( rownames( output[[Names[[i]]]] )[ rownames( output[[Names[[i]]]] ) < rebdate ] )
+          w_old <- output[[Names[i]]][yesterday, ]
+          w_old <- w_old[ ,which(w_old > 0)]
+          lw_init[[i]] <- na.omit( setNames( as.numeric(w_old), names(w_old)) )
+        }
+        tmp <- unlist( lapply( lw_init, FUN = function(w){ !all(names(w) %in% selection) } ) )
+        not_ok <- which(tmp)
+      } 
     }
-    # not_ok <- 1:n_sim
     
     FUN <- function(w) { timeSeries( matrix( w, nrow = 1, dimnames = list(NULL, names(w)) ),
                                      rebdate ) }
@@ -529,4 +560,277 @@
   
   
             
+  # --------------------------------------------------------------------------
+  BacktestCustom.maxMomPortfolio <- function( rebdate  = NULL )
+  {
+    RBE <- rebalenv(rebdate = rebdate)
+    GPS <- RBE$GPS
+    X_w <- getData( GPS )
+    X <- window( data$X_est_d[ ,colnames(X_w)], start(X_w), end(X_w) )
+    X[is.na(X)] <- 0
+    # mom <- exp( apply( log(1 + X_w[-1, ]), 2, mean ) ) - 1
+    mom <- exp( apply( X[-1, ], 2, mean ) ) - 1 # estimation data is already continuous returns
+    GPS@solver$obj_lin <- -mom
+    GPS@solver$utility <- list(riskaversion = 0)
+    GPS@solver$portfolio <- "meanvariance"
+    GPO <- GPO::gpo(GPS)
+    wghts <- GPO::getWeights(GPO)
+    wghts <- timeSeries( matrix( wghts, nrow = 1, dimnames = list(NULL, names(wghts)) ),
+                         rebdate )
+    .self$appendOutput( value = list( weights = wghts ) )
+    return( TRUE )
+  }
+  BacktestCustom$methods( maxMomPortfolio = BacktestCustom.maxMomPortfolio )
+  
+  # --------------------------------------------------------------------------
+  BacktestCustom.momScorePortfolio <- function( rebdate  = NULL )
+  {
+    RBE <- rebalenv(rebdate = rebdate)
+    X_w <- getData( RBE$GPS )
+    X <- window( data$X_est_d[ ,colnames(X_w)], start(X_w), end(X_w) )
+    X[is.na(X)] <- 0
+    # mom <- momentum( Data = X, spec = momCtrl( method = "cumretEwma" ) )
+    # mom <- exp( apply( log(1 + X[-1, ]), 2, mean ) ) - 1
+    mom <- exp( apply( X[-1, ], 2, mean ) ) - 1   # estimation data is already continuous returns
+    mom <- timeSeries( matrix( mom, nrow = 1, dimnames = list(NULL, names(mom)) ),
+                       rebdate )
+    .self$appendOutput( value = list( scores = mom ) )
+    return( TRUE )
+  }
+  BacktestCustom$methods( momScorePortfolio = BacktestCustom.momScorePortfolio )
+  
+  # --------------------------------------------------------------------------
+  BacktestCustom.volScorePortfolio <- function( rebdate  = NULL )
+  {
+    RBE <- rebalenv(rebdate = rebdate)
+    X_w <- getData( RBE$GPS )
+    X <- window( data$X_est_d[ ,colnames(X_w)], start(X_w), end(X_w) )
+    X[is.na(X)] <- 0
+    sds <- setNames( as.numeric( apply( X, 2, sd ) ), colnames(X) )
+    sds <- timeSeries( matrix( sds, nrow = 1, dimnames = list(NULL, names(sds)) ),
+                       rebdate )
+    .self$appendOutput( value = list( scores = sds ) )
+  }
+  BacktestCustom$methods( volScorePortfolio = BacktestCustom.volScorePortfolio )
+  
+  
+  
+  
+  
+  
+  # --------------------------------------------------------------------------
+  BacktestCustom.grwPortfolio <- function( rebdate  = NULL )
+  {
+    RBE <- rebalenv( rebdate = rebdate )
+    selection <- RBE$selection
+    n_sim <- ifelse( is.null(spec$n_sim), 10^2, spec$n_sim )
+    Names <- paste0("grw", 1:n_sim)
+    keep_all_rebdates <- spec$keep_all_rebdates
+    
+    # Extract constraints
+    Cons <- getConstraints( RBE$GPS )
+    P <- lincon2Polytope( object = Cons )
+    idx_eq <- which(P$sense == "=")
+    A <- P$A[-idx_eq, ]
+    b <- P$b[-idx_eq]
+    Aeq <- matrix( P$A[idx_eq, ], nrow = length(idx_eq), ncol = ncol(P$A), byrow = TRUE )
+    beq <- P$b[idx_eq]
+    
+    # Sample with volesti
+    # pre_proc_list = preprocess_with_quadprog(A, b, Aeq, beq)
+    # debugonce( preprocess_with_quadprog )
+    result_list <- samples_uniform_portfolios( A = A, b = b, Aeq = Aeq, beq = beq, ess = n_sim )
+    # samples <- t(result_list$samples)
+    samples <- t(result_list$random_portfolios)
+    colnames(samples) <- selection
+    samples <- samples[ sample(1:nrow(samples))[1:n_sim], ]
+    
+    # Load initial weights and only append new random weights if there are is a change 
+    # in the selection compared to the old allocation (otherwise buy and hold).
+    not_ok <- 1:n_sim
+    if ( !isTRUE(keep_all_rebdates) ) {
+      idx <- which(spec$rebdates == rebdate)
+      if (idx > 1) {
+        lw_init <- list()
+        for ( i in seq(along = Names) ) {
+          yesterday <- max( rownames( output[[Names[[i]]]] )[ rownames( output[[Names[[i]]]] ) < rebdate ] )
+          w_old <- output[[Names[i]]][yesterday, ]
+          w_old <- w_old[ ,which(w_old > 0)]
+          lw_init[[i]] <- na.omit( setNames( as.numeric(w_old), names(w_old)) )
+        }
+        tmp <- unlist( lapply( lw_init, FUN = function(w){ !all(names(w) %in% selection) } ) )
+        not_ok <- which(tmp)
+      } 
+    }
+    
+    FUN <- function(w) { timeSeries( matrix( w, nrow = 1, dimnames = list(NULL, names(w)) ),
+                                     rebdate ) }
+    lWeights <- lapply( 1:nrow(samples), FUN = function(k) { FUN( samples[k, ] ) } )
+    names(lWeights) <- Names
+    if ( length(not_ok) > 0 ) {
+      .self$appendOutput( lWeights[ not_ok ] )
+    }
+    
+    return( TRUE )
+  }
+  BacktestCustom$methods( grwPortfolio = BacktestCustom.grwPortfolio )
+  
+  
+  
+  
+  # --------------------------------------------------------------------------
+  BacktestCustom.maxRCPortfolio <- function( rebdate  = NULL )
+  {
+    # Maximize random centroid portfolio 
+    
+    # Parameters
+    RBE <- rebalenv( rebdate = rebdate )
+    selection <- RBE$selection
+    n_sim <- ifelse( is.null(spec$n_sim), 10^2, spec$n_sim )
+    Names <- paste0("maxRC", 1:n_sim)
+    keep_all_rebdates <- spec$keep_all_rebdates
+    n_pos <- spec$n_pos
+    
+    # Compute centroid
+    z <- ffv::centroid( n = length(selection) )
+    
+    # Shift centroid so that more values are negative 
+    # (which means that less stocks will be in the portfolio if n_pos < 1/max_weight)
+    if ( !is.null(n_pos) ) {
+      z <- z - z[n_pos]
+    }
+    
+    # Prepare linear optimization problem
+    GPS <- RBE$GPS
+    GPS@solver$progtype = "LP"
+    GPS@solver$verbose <- FALSE
+    GPS@solver$obj_lin <- -z
+    GPS@solver$obj_quad <- NULL
+    GPP <- gpp( GPS = GPS )
+    
+    # Sampling
+    samples <- matrix( NA, nrow = n_sim, ncol = length(selection), 
+                       dimnames = list( Names, selection) )
+    for ( i in 1:n_sim ) {
+      mu <- sample(z)
+      GPP@model$model$obj <- mu
+      GPO <- gpsolve(GPP)
+      samples[i, ] <- getWeights(GPO)
+    }
+    
+    # Load initial weights and only append new random weights if there are is a change 
+    # in the selection compared to the old allocation (otherwise buy and hold).
+    not_ok <- 1:n_sim
+    if ( !isTRUE(keep_all_rebdates) ) {
+      idx <- which(spec$rebdates == rebdate)
+      if (idx > 1) {
+        lw_init <- list()
+        for ( i in seq(along = Names) ) {
+          yesterday <- max( rownames( output[[Names[[i]]]] )[ rownames( output[[Names[[i]]]] ) < rebdate ] )
+          w_old <- output[[Names[i]]][yesterday, ]
+          w_old <- w_old[ ,which(w_old > 0)]
+          lw_init[[i]] <- na.omit( setNames( as.numeric(w_old), names(w_old)) )
+        }
+        tmp <- unlist( lapply( lw_init, FUN = function(w){ !all(names(w) %in% selection) } ) )
+        not_ok <- which(tmp)
+      } 
+    }
+    
+    FUN <- function(w) { timeSeries( matrix( w, nrow = 1, dimnames = list(NULL, names(w)) ),
+                                     rebdate ) }
+    lWeights <- lapply( 1:nrow(samples), FUN = function(k) { FUN( samples[k, ] ) } )
+    names(lWeights) <- Names
+    if ( length(not_ok) > 0 ) {
+      .self$appendOutput( lWeights[ not_ok ] )
+    }
+    
+    return( TRUE )
+  }
+  BacktestCustom$methods( maxRCPortfolio = BacktestCustom.maxRCPortfolio )
+  
+  
+  
+  
+  
+  # --------------------------------------------------------------------------
+  BacktestCustom.MSCIMultifactorConstraints <- function( rebdate  = NULL )
+  {
+    
+    wmat_bm <- data$wmat_bm
+    if ( is.null(wmat_bm) ) { 
+      stop( "Matrix of benchmark weights is missing.")
+    }
+    country_mat <- data$country_mat
+    if ( is.null(country_mat) ) { 
+      stop( "Matrix of country belongingness is missing.") 
+    }
+    sector_mat <- data$sector_mat
+    if ( is.null(sector_mat) ) { 
+      stop( "Matrix of sectort belongingness is missing.") 
+    }
+    
+    # Keep raw data
+    if ( !is.null(data$upper_mat) ) data$upper_mat_raw <<- data$upper_mat
+    if ( !is.null(data$country_UB) ) data$country_UB_raw <<- data$country_UB
+    if ( !is.null(data$sector_UB) ) data$sector_UB_raw <<- data$sector_UB
+    
+    # Upper and lower bounds
+    # upper_mat <- wmat_bm + 0.02
+    upper_mat <- wmat_bm + 0.05
+    upper_mat[ upper_mat > 1 ] <- 1
+    # lower_mat <- wmat_bm - 0.02
+    lower_mat <- wmat_bm - 0.05
+    lower_mat[ lower_mat < 0 ] <- 0
+    if ( !is.null( data$upper_mat) ) {
+      Names <- colnames(wmat_bm)
+      idx_na <- which( is.na( data$upper_mat[ ,Names] ) )
+      upper_mat[ idx_na ] <- NA
+      lower_mat[ idx_na ] <- NA
+    }
+  
+    # Sector constraints
+    wmat_bm_sector <- groupWeights( wmat = wmat_bm, 
+                                    group_mat = sector_mat )
+    sector_UB <- wmat_bm_sector + 0.1
+    # sector_UB <- wmat_bm_sector + 0.05
+    sector_UB[ sector_UB > 1 ] <- 1
+    sector_LB <- wmat_bm_sector - 0.1
+    # sector_LB <- wmat_bm_sector - 0.05
+    sector_LB[ sector_LB < 0 ] <- 0
+    
+    # Country constraints
+    wmat_bm_country <- groupWeights( wmat = wmat_bm, 
+                                     group_mat = country_mat )
+    country_UB <- wmat_bm_country + 0.05
+    country_UB[ country_UB > 1 ] <- 1
+    country_LB <- wmat_bm_country - 0.05
+    country_LB[ country_LB < 0 ] <- 0
+    
+    # Correction for countries which have weight < 2.5% in BM
+    idx <- which( wmat_bm_country < 0.025 )
+    if ( length(idx) > 0 ) {
+      country_UB[ idx ] <- wmat_bm_country[ idx ] * 3
+    }
+    
+    # Attach
+    data$upper_mat <<- upper_mat
+    data$lower_mat <<- lower_mat
+    data$sector_LB <<- sector_LB
+    data$sector_UB <<- sector_UB
+    data$country_LB <<- country_LB
+    data$country_UB <<- country_UB
+    
+    return( TRUE )
+  }
+  BacktestCustom$methods( MSCIMultifactorConstraints = BacktestCustom.MSCIMultifactorConstraints )
+  
+  
+  
+  
+  # --------------------------------------------------------------------------
+  BacktestCustom.selection.best_momentum <- function( rebdate  = NULL )
+  {
+    
+  }
+  
             

@@ -165,7 +165,10 @@
   
   
   plotSimTS( as.simTS( X_bm ) )
-  
+  lStats <- descStats( window( X_bm, "2021-12-31", "2022-12-31" ) )
+  lStats
+  # debugonce( statsolz:::plot.stats )
+  statsolz:::plot.stats( lStats, sortby = NULL, scl = 0 )
   
   
   

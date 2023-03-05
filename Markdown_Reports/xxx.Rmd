@@ -1,0 +1,251 @@
+---
+title: "Random Portfolios"
+subtitle: "maxRC USA"
+author: "Cyril Bachelard"
+date: \today
+header-includes:
+   - \usepackage{fancyhdr}
+   - \usepackage{sectsty}
+   - \sectionfont{\newpage}
+   - \pagestyle{fancy}
+   - \fancyhead[L]{\rightmark}
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_sections: true
+    fig_width: 9
+    fig_height: 6
+    fig_caption: true
+documentclass: report
+---
+
+
+```{r setup, include=FALSE}
+# KNIT OPTIONS
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE, tidy = TRUE,
+                      cache.lazy = FALSE, message = FALSE, warning = FALSE)
+```
+
+
+
+```{r code, include=FALSE}
+
+  require(pander)
+  require(DT)
+  require(data.table)
+  require(volesti)
+  require(stringr)
+  require(garcholz)
+  require(slolz)
+  require(simolz)
+  require(visolz)
+  require(covolz)
+  require(BSS)
+  require(BBSolz)
+  require(Backtest)
+  require(RP)
+  wd_data <- "R:/Asset_Management/Research_Projects/External_Research_Projects/GeomScale/Random_Portfolios/"
+  wd <- "H:/R/github/Random_Portfolios/"
+  source( paste0(wd, "Source/class_BacktestCustom.R") )
+  source( paste0(wd, "Source/class_BacktestPanelFactor.R") )
+  source( paste0(wd, "Source/custom_functions.R") )
+  
+  
+  # --------------------------------------------------------------------------
+  # LOAD
+  # --------------------------------------------------------------------------
+  
+  env <- readRDS( file = paste0(wd_data, "waRehouse/rp_maxRC_multifac_usa_factor_control_analze.rds") )
+  lW_array <- env$lW_array
+  lSim_backtests <- env$lSim_backtests
+  lSim_is <- env$lSim_is
+  lSim_oos <- env$lSim_oos
+  lStats_is <- env$lStats_is
+  lStats_oos <- env$lStats_oos
+  lFactor_scores <- env$lFactorScores
+  
+  
+  factor_names <- c("momentum_stdz", "value", "quality", "size_stdz", "lowvola_stdz")
+  lStats_is <- lapply( lStats_is, FUN = function(x) { x$all <- list( stats = do.call( cbind, lapply( x[ factor_names ], FUN = function(y) { y$stats } ) ) ); return(x) } )
+  lStats_oos <- lapply( lStats_oos, FUN = function(x) { x$all <- list( stats = do.call( cbind, lapply( x[ factor_names ], FUN = function(y) { y$stats } ) ) ); return(x) } )
+  
+
+
+```
+
+
+
+
+```{r html_render_trick, include = FALSE}
+htmltools::tagList(hc_columnChart(matrix(1)))
+htmltools::tagList(datatable(matrix(1)))
+```
+
+
+# RESULTS {-.tabset}
+* **Text**
+* **Text**
+
+
+
+```{r body2, include = FALSE}
+
+  lHtml <- list()
+  
+  sim <- lSim_backtests[[1]]
+  colors <- fBasics::divPalette(n = ncol(sim), "RdYlGn")
+  # bt_names <- names(lStats_oos)
+  # factor_names <- names(lStats_oos[[1]])
+  bt_names <- setNames( c("mfac", "mfac_val_ctrl", "mfac_qual_ctrl", "mfac_size_stdz_ctrl", "mfac_mom_ctrl", "mfac_val_qual_size_mom_ctrl"),
+                        c("no_control", "value_control", "quality_control", "size_control", "momentum_control", "vqsm_control") )
+  factor_names <- setNames( c("rnd", "momentum_stdz", "value", "quality", "size_stdz", "lowvola_stdz", "all"),
+                            c("random", "momentum", "value", "quality", "size", "lowvola", "all") )
+  
+  
+  # Correlations
+
+  lHtml[[length(lHtml)+1]] <- pandoc.header.return( "Correlations: mean - variance {-.tabset}", level = 2 )
+
+  lCorr_is <- list()
+  lCorr_oos <- list()
+  for ( bt_name in bt_names ) {
+    tmp <- lapply( factor_names, FUN = function(factor_name) {
+      cor( x = lStats_is[[ bt_name ]][[ factor_name ]]$stats["sds", ],
+           y = lStats_is[[ bt_name ]][[ factor_name ]]$stats["means", ] )
+    } )
+    lCorr_is[[ bt_name ]] <- setNames( unlist( tmp ), factor_names )
+    tmp <- lapply( factor_names, FUN = function(factor_name) {
+      cor( x = lStats_oos[[ bt_name ]][[ factor_name ]]$stats["sds", ],
+           y = lStats_oos[[ bt_name ]][[ factor_name ]]$stats["means", ] )
+    } )
+    lCorr_oos[[ bt_name ]] <- setNames( unlist( tmp ), factor_names )
+  }
+  correlations_is <- t( do.call( cbind, lCorr_is ) )
+  correlations_oos <- t( do.call( cbind, lCorr_oos ) )
+  rownames(correlations_is) <- rownames(correlations_oos) <- names(bt_names)
+  colnames(correlations_is) <- colnames(correlations_oos) <- names(factor_names)
+  lHtml[[length(lHtml)+1]] <- datatable( round(correlations_oos, 2),
+                                         caption = "Corr_oos",
+                                         width = "100%" )
+  lHtml[[length(lHtml)+1]] <- datatable( round(correlations_is, 2),
+                                         caption = "Corr_is",
+                                         width = "100%" )
+
+  # Correlations
+  lHtml[[length(lHtml)+1]] <- pandoc.header.return( "Correlations: statistic - rank {-.tabset}", level = 2 )
+
+
+  statistics <- c("means", "sds", "sharpe")
+  for ( statistic in statistics ) {
+    txt <- paste0("Statistic: ", statistic, " {-}")
+    lHtml[[length(lHtml)+1]] <- pandoc.header.return( txt, level = 3 )
+    lCorr_is <- list()
+    lCorr_oos <- list()
+    for ( bt_name in bt_names ) {
+      tmp <- lapply( factor_names, FUN = function(factor_name) {
+        cor( x = lStats_is[[ bt_name ]][[ factor_name ]]$stats[statistic, ],
+             y = 1:ncol(lStats_is[[ bt_name ]][[ factor_name ]]$stats) )
+      } )
+      lCorr_is[[ bt_name ]] <- setNames( unlist( tmp ), factor_names )
+      tmp <- lapply( factor_names, FUN = function(factor_name) {
+        cor( x = lStats_oos[[ bt_name ]][[ factor_name ]]$stats[statistic, ],
+             y = 1:ncol(lStats_oos[[ bt_name ]][[ factor_name ]]$stats)  )
+      } )
+      lCorr_oos[[ bt_name ]] <- setNames( unlist( tmp ), factor_names )
+    }
+    correlations_is <- t( do.call( cbind, lCorr_is ) )
+    correlations_oos <- t( do.call( cbind, lCorr_oos ) )
+    rownames(correlations_is) <- rownames(correlations_oos) <- names(bt_names)
+    colnames(correlations_is) <- colnames(correlations_oos) <- names(factor_names)
+    lHtml[[length(lHtml)+1]] <- datatable( round(correlations_oos, 2),
+                                           caption = "Corr_oos",
+                                           width = "100%" )
+    lHtml[[length(lHtml)+1]] <- datatable( round(correlations_is, 2),
+                                           caption = "Corr_is",
+                                           width = "100%" )
+  }
+  
+
+  # Plots
+  lHtml[[length(lHtml)+1]] <- pandoc.header.return( "Plots {-.tabset}", level = 2 )
+
+  statistics <- c("means", "sds", "sharpe")
+
+  for ( statistic in statistics ) {
+
+    lHtml[[length(lHtml)+1]] <- pandoc.header.return( paste0(statistic, " {-.tabset}"), level = 3 )
+
+    for ( fac_name in factor_names ) {
+
+      lHtml[[length(lHtml)+1]] <- pandoc.header.return( paste0(names(factor_names)[which(factor_names == fac_name)], " {-.tabset}"), level = 4 )
+
+      xlab <- ylab <- ""
+      sds_is <- range( unlist( lapply( lStats_is[bt_names],
+                                       FUN = function(x) { x[[fac_name]]$stats["sds", ] } ) ) )
+      sds_oos <- range( unlist( lapply( lStats_oos[bt_names],
+                                        FUN = function(x) { x[[fac_name]]$stats["sds", ] } ) ) )
+      means_is <- range( unlist( lapply( lStats_is[bt_names],
+                                         FUN = function(x) { x[[fac_name]]$stats["means", ] } ) ) )
+      means_oos <- range( unlist( lapply( lStats_oos[bt_names],
+                                          FUN = function(x) { x[[fac_name]]$stats["means", ] } ) ) )
+      ylim_is <- range( unlist( lapply( lStats_is[bt_names],
+                                        FUN = function(x) { x[[fac_name]]$stats[statistic, ] } ) ) )
+      ylim_oos <- range( unlist( lapply( lStats_oos[bt_names],
+                                         FUN = function(x) { x[[fac_name]]$stats[statistic, ] } ) ) )
+
+      for ( bt_name in bt_names ) {
+
+        lHtml[[length(lHtml)+1]] <- pandoc.header.return( paste0(names(bt_names)[which(bt_names == bt_name)], " {-}"), level = 5 )
+
+        par( mfrow = c(2, 2) )
+
+        plot( x = 1:ncol(lStats_oos[[ bt_name ]][[ fac_name ]]$stats),
+              y = lStats_oos[[ bt_name ]][[ fac_name ]]$stats[statistic, ],
+              pch = 19, col = colors, main = "Out-of-sample",
+              xlab = xlab, ylab = ylab, ylim = ylim_oos )
+
+        plot( x = 1:ncol(lStats_is[[ bt_name ]][[ fac_name ]]$stats),
+              y = lStats_is[[ bt_name ]][[ fac_name ]]$stats[statistic, ],
+              pch = 19, col = colors, main = "In-sample",
+              xlab = xlab, ylab = ylab, ylim = ylim_is )
+
+        plot( x = lStats_oos[[ bt_name ]][[ fac_name ]]$stats["sds", ],
+              y = lStats_oos[[ bt_name ]][[ fac_name ]]$stats["means", ],
+              pch = 19, col = colors, main = "Out-of-sample",
+              xlab = xlab, ylab = ylab, xlim = sds_oos, ylim = means_oos )
+
+        plot( x = lStats_is[[ bt_name ]][[ fac_name ]]$stats["sds", ],
+              y = lStats_is[[ bt_name ]][[ fac_name ]]$stats["means", ],
+              pch = 19, col = colors, main = "In-sample",
+              xlab = xlab, ylab = ylab, xlim = sds_is, ylim = means_is )
+
+        p <- recordPlot()
+        lHtml[[length(lHtml)+1]] <- p
+      }
+    }
+  }
+
+
+  
+  
+  
+```
+
+
+
+```{r render, results='asis', fig.height=8, echo = FALSE}
+ 
+  for ( i in 1:length(lHtml) ) {
+   if ( "recordedplot" %in% class(lHtml[[i]]) ) {
+     plot.new()
+     print(lHtml[[i]])
+     cat("\n")
+   } else {
+     print(htmltools::tagList(lHtml[i]))
+   }
+  }
+
+```
+

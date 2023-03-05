@@ -176,6 +176,8 @@
     weighting_method <- spec$weighting_method
     
     
+    
+    
     # # Sort by volatility
     # # sds <- apply( X, 2, sd )
     # covmat <- covariance( RBE$GPS )
