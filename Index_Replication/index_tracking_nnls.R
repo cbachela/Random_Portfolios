@@ -7,7 +7,7 @@
   
   # --------------------------------------------------------------------------
   # Cyril Bachelard
-  # This version:     02.02.2023
+  # This version:     06.03.2023
   # First version:    02.02.2023
   # --------------------------------------------------------------------------
   
@@ -37,6 +37,9 @@
   # source( paste0(wd, "Source/custom_functions.R") )
 
   
+  require(garcholz)
+  require(rugarch)
+  require(DAARC)
   require(Backtest)
   
   wd_data <- "R:/Asset_Management/Research_Projects/External_Research_Projects/GeomScale/Random_Portfolios/"
@@ -74,13 +77,30 @@
   BT0$initRBE()
   
 
+  rebdates <- BT0$spec$rebdates
+  rebdates_w <- rownames(BT0$data$X_est)
+  rebdates_w <- rebdates_w[ rebdates_w >= rebdates[1] ]
   
   
-  # # --------------------------------------------------------------------------
-  # # DEFINE INDEX SERIES TO BE REPLICATED
-  # # --------------------------------------------------------------------------
-  # 
-  # X_bm <- BT0$data$X_bm
+  
+  
+  # --------------------------------------------------------------------------
+  # DEFINE INDEX SERIES TO BE REPLICATED
+  # --------------------------------------------------------------------------
+
+  X_bm <- BT0$data$X_bm
+  
+  
+  SCNO <- DAARC:::Scenario$new()
+  SCNO$data$X_bm <- X_bm
+  # debugonce( SCNO$simUGagarchVola )
+  # seed <- 7906
+  seed <- 87654321
+  prob <- SCNO$simUGagarchVola( seed = seed, alpha1 = 0.09, beta1 = 0.9  )
+  SCNO$simulate( prob = prob)
+
+  plotSimTS( as.simTS(SCNO$output$Z_eqw) )
+  
   
   
   
@@ -91,9 +111,9 @@
   # --------------------------------------------------------------------------
 
   BT_minV <- BT0$copy()
+  BT_minV$data$upper_mat <- BT0$data$upper_mat * 0 + 1
   BT_minV$spec$portfolio <- NULL
   BT_minV$spec$cons_fun <- "box"
-  BT_minV$spec$width <- BT0$spec$width
   BT_minV$spec$selection_filter <- c("upperbound", "NA")
   BT_minV$runLoop()
   sim_minV <- BT_minV$simulate( fc = fc, vc = vc )
@@ -161,12 +181,35 @@
   # INDEX REPLICATING PORTFOLIO USING NNLS
   # --------------------------------------------------------------------------
   
-  BT <- BacktestIndexReplication$new()
-  BT$data <- BT0$data
-  BT$spec <- BT0$spec
-  BT$spec$portfolio <- "nnls"
-  BT$runLoop()
-  sim_bt <- BT$simulate( fc = fc, vc = vc )
+  BT_nnls <- BacktestIndexReplication$new()
+  BT_nnls$spec <- BT0$spec
+  BT_nnls$data <- BT0$data
+  BT_nnls$data$upper_mat <- BT0$data$upper_mat * 0 + 0.1
+  BT_nnls$data$X_bm <- SCNO$output$Z_eqw
+  # BT_nnls$spec$tau <- 52
+  BT_nnls$spec$portfolio <- "nnls"
+  # debugonce( BT_nnls$nnlsPortfolio )
+  BT_nnls$runLoop()
+  sim_nnls <- BT_nnls$simulate( fc = fc, vc = vc )
+  
+  
+  
+  
+  # --------------------------------------------------------------------------
+  # INDEX REPLICATING PORTFOLIO USING OLS
+  # --------------------------------------------------------------------------
+  
+  BT_ols <- BacktestIndexReplication$new()
+  BT_ols$spec <- BT0$spec
+  BT_ols$data <- BT0$data
+  BT_ols$data$upper_mat <- BT0$data$upper_mat * 0 + 0.1
+  BT_ols$data$X_bm <- SCNO$output$Z_eqw
+  BT_ols$spec$tau <- 52
+  BT_ols$spec$portfolio <- "ols"
+  # debugonce( BT_ols$olsPortfolio )
+  BT_ols$runLoop()
+  sim_ols <- BT_ols$simulate( fc = fc, vc = vc )
+  
   
   
   
@@ -206,15 +249,41 @@
   
   
   # --------------------------------------------------------------------------
-  # INDEX REPLICATING PORTFOLIO USING LS
+  # INDEX REPLICATING PORTFOLIO USING ELSASTIC NET
   # --------------------------------------------------------------------------
   
-  BT4 <- BacktestIndexReplication$new()
-  BT4$data <- BT0$data
-  BT4$spec <- BT0$spec
-  BT4$spec$portfolio <- "ls"
-  BT4$runLoop()
-  sim_bt4 <- BT4$simulate( fc = fc, vc = vc )
+  BT_elnet <- BacktestIndexReplication$new()
+  BT_elnet$data <- BT0$data
+  BT_elnet$spec <- BT0$spec
+  BT_elnet$spec$rebdates <- rebdates_w
+  BT_elnet$data$X_bm <- SCNO$output$Z_eqw
+  BT_elnet$spec$tau <- 21 * 1
+  BT_elnet$spec$elnet_alpha <- 1  # 1 == lasso (l1-penalty, induces sparsity), 0 = ridge (l2-penalty)
+  BT_elnet$spec$portfolio <- "elnet"
+  BT_elnet$initRBE()
+  # debugonce( BT_elnet$elnetPortfolio )
+  BT_elnet$runLoop()
+  sim_elnet <- BT_elnet$simulate( fc = fc, vc = vc )
+  
+  
+  
+  BT_ridge <- BT_elnet$copy()
+  BT_ridge$output <- list()
+  BT_ridge$spec$tau <- NULL
+  BT_ridge$spec$elnet_alpha <- 0  # 1 == lasso (l1-penalty, induces sparsity), 0 = ridge (l2-penalty)
+  BT_ridge$spec$portfolio <- "elnet"
+  BT_ridge$runLoop()
+  sim_ridge <- BT_ridge$simulate( fc = fc, vc = vc )
+  
+  
+  BT_lasso <- BT_elnet$copy()
+  BT_lasso$output <- list()
+  BT_lasso$spec$tau <- NULL
+  BT_lasso$spec$elnet_alpha <- 1  # 1 == lasso (l1-penalty, induces sparsity), 0 = ridge (l2-penalty)
+  BT_lasso$spec$portfolio <- "elnet"
+  BT_lasso$runLoop()
+  sim_lasso <- BT_lasso$simulate( fc = fc, vc = vc )
+  
   
   
   
@@ -236,8 +305,9 @@
   weightsBarPlot( sector_mat_bt3[BT0$spec$rebdates, ] )
   weightsBarPlot( sector_mat_bm[BT0$spec$rebdates, ] )
   
-  weightsBarPlot( BT$output$weights )
-  weightsBarPlot( BT4$output$weights )
+  weightsBarPlot( BT_nnls$output$weights )
+  weightsBarPlot( BT_ols$output$weights )
+  weightsBarPlot( BT_elnet$output$weights )
   
   
   
@@ -247,19 +317,48 @@
   # --------------------------------------------------------------------------
   
   
-  sim <- na.omit( cbind( bm = BT0$data$X_bm,
-                         # bm_abs = abs(BT0$data$X_bm),
-                         bt = sim_bt,
-                         # bt2 = sim_bt2,
-                         bt4 = sim_bt4 ) )
+  sim <- na.omit( cbind( bm = X_bm,
+                         bm_synt = SCNO$output$Z_eqw,
+                         minvar = sim_minV,
+                         nnls = sim_nnls,
+                         ols = sim_ols,
+                         elnet = sim_elnet,
+                         lasso = sim_lasso,
+                         ridge = sim_ridge ) )
+  
+  sim <- na.omit( cbind( bm_synt = SCNO$output$Z_eqw,
+                         elnet = sim_elnet ) )
   
   
   plotSimTS( as.simTS( sim ) )
-  # plotSimTS( as.simTS( sim[rownames(sim) > "2010-01-01", ] ) )
+  # plotSimTS( as.simTS( sim[rownames(sim) > "2003-01-01", ] ) )
   
   
-  stats_fields <- c("cumret", "means", "sds", "sharpe", "maxDD", "te")
-  t( descStats( sim, descStatsSpec( bmName = "bm") )$stats[stats_fields, ] )
+  stats_fields <- c("cumret", "means", "sds", "dsds", "sharpe", "maxDD", "te", "ir")
+  t( descStats( sim, descStatsSpec( bmName = "bm_synt") )$stats[stats_fields, ] )
+  
+  
+  # Relative performance
+  sim_rel <- timeSeries( apply( sim, 2, simOutperformance, y = as.numeric(sim[ ,"bm"]) ),
+                         time(sim) )
+  plotSimTS( as.simTS(sim_rel) )      
+  
+  stats_fields <- c("cumret", "means", "sds", "dsds", "sharpe", "maxDD")
+  t( descStats( sim_rel, descStatsSpec( bmName = "bm") )$stats[stats_fields, ] )
+  
+  
+  
+  
+  
+  # --------------------------------------------------------------------------
+  # SAVE
+  # --------------------------------------------------------------------------
+  
+  env <- new.env()
+  env$sim_minV <- sim_minV
+  env$sim_bt <- sim_bt
+  
+  saveRDS( object = env, file = paste0(wd_data, "waRehouse/index_tracking_nnls.rds") )
   
   
   

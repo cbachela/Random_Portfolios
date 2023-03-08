@@ -21,6 +21,7 @@
   # install.packages("gifski")  # for gif output
   # install.packages("av")      # for video output
   # install.packages("gganimate")
+  # install.packages("magick")  # to combine gif's
   
   require(timetk)
   require(dplyr)
@@ -28,38 +29,114 @@
   require(zoo)
   require(datasets)
   require(gganimate)
+  library(magick)
   # require(timeSeries)
+  require(garcholz)
   require(GPO)
+  require(Backtest)
   
   
-  # X <- GPO::getMSCIData( universe = "dm" )
-  X <- GPO::getMSCIData( universe = "bm" )
-  X <- X[isWeekday(time(X)), ]
-  X_level <- cumulated(X, "discrete")
+  # Load data
+  X_dm <- GPO::getMSCIData( universe = "dm" )
+  X_dm <- X_dm[isWeekday(time(X_dm)), ]
+  X_bm <- GPO::getMSCIData( universe = "bm" )
+  X_bm <- X_bm[isWeekday(time(X_bm)), ]
+  X_level <- cumulated(X_bm, "discrete")
+  X <- X_dm[ ,"FI"]
+  # descStats( X_dm )$stats["maxDD", ]
   
-  plot(X[ ,1])
   
   
-  # df <- tk_tbl( X[ ,1] )
-  # df <- transform( date = zoo:as.Date(index, frac = 0) )
   
-  # dates <- rownames(X)[1:300]
-  dates <- rownames( window(X, "2020-01-01", "2020-12-31") )
-  # df <- as_tibble( tk_tbl( X[dates, 1] ) )
-  df <- as_tibble( tk_tbl( X_level[dates, 1] ) )
+  # Compute minimum variance backtest
+  Gap <- 365
+  rebdates <- rownames(X_dm)[ seq(from = Gap + 1, to = nrow(X_dm), by = 21*3) ]
+  
+  BT <- BacktestBase$new()
+  BT$setCtrl( rebdates = rebdates,
+              width = Gap,
+              verbose = TRUE,
+              GPS = GPO::gps( Data = X_dm ) )
+  BT$data$X_est <- X_dm
+  BT$data$X_sim <- X_dm
+  BT$initRBE()
+  BT$run()
+  sim_mv <- BT$simulate( fc = 0, vc = 0 )
+  
+  
+  
+
+  
+  
+ 
+  # Multiple lines
+  
+  # dates <- as.Date( rownames( window(X, "2020-01-01", "2020-12-31") ) )
+  dates <- as.Date( rownames( window(X, "2008-01-01", "2009-03-31") ) )
+  
+  # Return series
+  df <- as_tibble( tk_tbl( data.frame( symbol = rep("BM", length(dates)), 
+                                       dates = dates,
+                                       value = matrix(X[dates, 1]) ) ) )
+  df2 <- as_tibble( tk_tbl( data.frame( symbol = rep("Your Portfolio", length(dates)), 
+                                        dates = dates,
+                                        value = matrix(sim_mv[dates, 1]) ) ) )
+  df <- rbind(df, df2) #  %>% group_by(symbol)
+  
   p <- df %>% 
-        ggplot( aes( x = index, y = BM) ) + 
-        geom_line() + 
-        geom_point(size = 2) + 
-        labs( x = "Date", y = "Percentage", title = "Returns" ) + 
-        transition_reveal( index ) + 
-        view_follow( fixed_y = TRUE )
-  
+    ggplot( aes( x = dates, y = value, group = symbol, color = symbol ) ) + 
+    geom_line() + 
+    geom_point(size = 2) + 
+    labs( x = "Date", y = "Percentage", title = "Returns" ) + 
+    transition_reveal( dates ) + 
+    view_follow( fixed_y = TRUE )
   #// fps = frame per second
-  animate(p, nframes = nrow(df), fps = 10 ) #, width = 800, height = 500 )  
+  p_gif <- animate(p, nframes = length(dates), fps = 8, width = 800, height = 500 )  
   
   
-  # anime_save( "filename.gif", p )
+  # Level series
+  df_level <- as_tibble( tk_tbl( data.frame( symbol = rep("BM", length(dates)), 
+                                             dates = dates,
+                                             value = matrix(cumulated(X[dates, 1], "discrete")) ) ) )
+  df2_level <- as_tibble( tk_tbl( data.frame( symbol = rep("Your Portfolio", length(dates)), 
+                                              dates = dates,
+                                              value = matrix(cumulated(sim_mv[dates, 1], "discrete")) ) ) )
+  df_level <- rbind(df_level, df2_level) #  %>% group_by(symbol)
+  
+  p_level <- df_level %>% 
+              ggplot( aes( x = dates, y = value, group = symbol, color = symbol ) ) + 
+              geom_line() + 
+              geom_point(size = 2) + 
+              labs( x = "Date", y = "Level", title = "Cumulative Returns" ) + 
+              transition_reveal( dates ) + 
+              view_follow( fixed_y = TRUE )
+  #// fps = frame per second
+  p_level_gif <- animate(p_level, nframes = length(dates), fps = 8, width = 800, height = 500 )  
+  
+
+  
+  
+  # Combine Gif's
+  
+  p_gif <- image_read( p_gif )
+  p_level_gif <- image_read( p_level_gif )
+  
+  new_gif <- image_append( c(p_gif[1], p_level_gif[1]), stack = TRUE)
+  for(i in 2:length(p_gif)){
+    combined <- image_append(c(p_gif[i], p_level_gif[i]), stack = TRUE)
+    new_gif <- c(new_gif, combined)
+  }
+  
+  new_gif
+  
+  
+  
+  
+  
+  
+  # anime_save( "filename.gif", new_gif )
+  
+  
   
   
   
@@ -71,7 +148,6 @@
   # --------------------------------------------------------------------------
   # Example from https://www.codingfinance.com/post/2020-03-20-create-animations-in-r/
   # --------------------------------------------------------------------------
-  
   
   
   # install.packages( c("tidyquant", "tidyverse") )
